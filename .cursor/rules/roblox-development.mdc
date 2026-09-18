@@ -1,0 +1,12 @@
+---
+description: Persistent Roblox Studio implementation rules for this project
+alwaysApply: true
+---
+
+# Roblox Development Rules
+
+1. When asked to add or create something, make it present and editable in Roblox Studio's edit mode. Do not create it only at play-test runtime.
+2. Do not add artificial parent instances or folders. Use the natural Roblox hierarchy required by the feature.
+3. When creating UI, place its functional LocalScript directly under the relevant UI instance.
+
+Keep this file updated when the user adds a new project rule.

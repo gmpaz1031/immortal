@@ -4,6 +4,24 @@
     "$className": "DataModel",
 
     "ReplicatedStorage": {
+      "CultivationRemote": {
+        "$className": "RemoteEvent"
+      },
+      "SkillRemotes": {
+        "$className": "Folder",
+        "SkillRequest": {
+          "$className": "RemoteEvent"
+        },
+        "SkillReplicate": {
+          "$className": "RemoteEvent"
+        },
+        "SkillEquipRequest": {
+          "$className": "RemoteEvent"
+        },
+        "SkillDataUpdate": {
+          "$className": "RemoteEvent"
+        }
+      },
       "Shared": {
         "$path": "src/shared"
       }
@@ -16,6 +34,28 @@
     },
 
     "StarterPlayer": {
+      "StarterCharacterScripts": {
+        "CultivatingStatus": {
+          "$className": "BillboardGui",
+          "$properties": {
+            "Enabled": false,
+            "AlwaysOnTop": true,
+            "Size": { "UDim2": [[0, 180], [0, 36]] },
+            "StudsOffset": [0, 3, 0]
+          },
+          "Label": {
+            "$className": "TextLabel",
+            "$properties": {
+              "BackgroundTransparency": 1,
+              "Size": { "UDim2": [[1, 0], [1, 0]] },
+              "Text": "Cultivating",
+              "TextColor3": [0.96, 0.78, 0.25],
+              "TextScaled": true,
+              "Font": "GothamBold"
+            }
+          }
+        }
+      },
       "StarterPlayerScripts": {
         "Client": {
           "$path": "src/client"
@@ -23,31 +63,142 @@
       }
     },
 
+    "StarterGui": {
+      "CultivationUI": {
+        "$className": "ScreenGui",
+        "$properties": {
+          "ResetOnSpawn": false
+        },
+        "CultivationClient": {
+          "$path": "src/ui/CultivationClient.client.luau"
+        },
+        "Panel": {
+          "$className": "Frame",
+          "$properties": {
+            "BackgroundColor3": [0.06, 0.07, 0.12],
+            "BorderSizePixel": 0,
+            "Position": { "UDim2": [[1, -330], [0, 24]] },
+            "Size": { "UDim2": [[0, 306], [0, 244]] }
+          },
+          "Title": {
+            "$className": "TextLabel",
+            "$properties": {
+              "BackgroundTransparency": 1,
+              "Position": { "UDim2": [[0, 12], [0, 8]] },
+              "Size": { "UDim2": [[1, -24], [0, 28]] },
+              "Text": "CULTIVATION",
+              "TextColor3": [0.96, 0.78, 0.25],
+              "TextScaled": true,
+              "Font": "GothamBold"
+            }
+          },
+          "Gold": {
+            "$className": "TextLabel",
+            "$properties": {
+              "BackgroundTransparency": 1,
+              "Position": { "UDim2": [[0, 14], [0, 42]] },
+              "Size": { "UDim2": [[1, -28], [0, 22]] },
+              "Text": "Gold: 0",
+              "TextColor3": [1, 0.85, 0.3],
+              "TextSize": 18,
+              "TextXAlignment": "Left"
+            }
+          },
+          "Realm": {
+            "$className": "TextLabel",
+            "$properties": {
+              "BackgroundTransparency": 1,
+              "Position": { "UDim2": [[0, 14], [0, 68]] },
+              "Size": { "UDim2": [[1, -28], [0, 22]] },
+              "Text": "Qi Condensation · Level 0",
+              "TextColor3": [0.8, 0.86, 1],
+              "TextSize": 16,
+              "TextXAlignment": "Left"
+            }
+          },
+          "QiBar": {
+            "$className": "Frame",
+            "$properties": {
+              "BackgroundColor3": [0.13, 0.15, 0.22],
+              "BorderSizePixel": 0,
+              "Position": { "UDim2": [[0, 14], [0, 102]] },
+              "Size": { "UDim2": [[1, -28], [0, 24]] }
+            },
+            "Fill": {
+              "$className": "Frame",
+              "$properties": {
+                "BackgroundColor3": [0.27, 0.75, 0.94],
+                "BorderSizePixel": 0,
+                "Size": { "UDim2": [[0, 0], [1, 0]] }
+              }
+            },
+            "Value": {
+              "$className": "TextLabel",
+              "$properties": {
+                "BackgroundTransparency": 1,
+                "Size": { "UDim2": [[1, 0], [1, 0]] },
+                "Text": "Qi: 0 / 100",
+                "TextColor3": [1, 1, 1],
+                "TextSize": 15
+              }
+            }
+          },
+          "CultivateHint": {
+            "$className": "TextButton",
+            "$properties": {
+              "BackgroundColor3": [0.12, 0.2, 0.3],
+              "BorderSizePixel": 0,
+              "Position": { "UDim2": [[0, 14], [0, 136]] },
+              "Size": { "UDim2": [[1, -28], [0, 20]] },
+              "Text": "Press C to cultivate",
+              "TextColor3": [0.7, 0.75, 0.85],
+              "TextSize": 14
+            }
+          },
+          "Breakthrough": {
+            "$className": "TextButton",
+            "$properties": {
+              "BackgroundColor3": [0.55, 0.32, 0.08],
+              "BorderSizePixel": 0,
+              "Position": { "UDim2": [[0, 14], [0, 202]] },
+              "Size": { "UDim2": [[1, -28], [0, 30]] },
+              "Text": "Breakthrough",
+              "TextColor3": [1, 0.92, 0.7],
+              "TextSize": 16,
+              "Visible": false
+            }
+          }
+        }
+      },
+      "SkillUI": {
+        "$className": "ScreenGui",
+        "$properties": {
+          "ResetOnSpawn": false,
+          "DisplayOrder": 5
+        },
+        "SkillClient": {
+          "$path": "src/ui/SkillClient.client.luau"
+        }
+      }
+    },
+
+    "StarterPack": {
+      "Combat": {
+        "$className": "Tool",
+        "$properties": {
+          "CanBeDropped": false,
+          "RequiresHandle": false,
+          "ToolTip": "Click to punch enemies · 10 damage"
+        },
+        "CombatClient": {
+          "$path": "src/combat/Combat.client.luau"
+        }
+      }
+    },
+
     "Workspace": {
       "$properties": {
         "FilteringEnabled": true
-      },
-      "Baseplate": {
-        "$className": "Part",
-        "$properties": {
-          "Anchored": true,
-          "Color": [
-            0.38823,
-            0.37254,
-            0.38823
-          ],
-          "Locked": true,
-          "Position": [
-            0,
-            -10,
-            0
-          ],
-          "Size": [
-            512,
-            20,
-            512
-          ]
-        }
       }
     },
     "Lighting": {
