@@ -231,6 +231,11 @@
       "$properties": {
         "RespectFilteringEnabled": true
       }
+    },
+    "ServerStorage": {
+      "Storage": {
+        "$path": "src/serverstorage"
+      }
     }
   }
 }

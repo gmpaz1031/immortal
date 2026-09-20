@@ -1,0 +1,23 @@
+{
+  "Skills": {
+    "Sword Slash": "rbxassetid://123519897558803",
+    "Flame Ball": "rbxassetid://120346215585475",
+    "Palm Art": "rbxassetid://103990413563680",
+    "Thunder Strike": "rbxassetid://95852143249219",
+    "Multiple Swords": "rbxassetid://137303318853446",
+    "Flame Spear": "rbxassetid://98418345643705"
+  },
+  "Items": {
+    "Qi Condensation Pill": "rbxassetid://90495247546769",
+    "Lesser Qi Pill": "rbxassetid://74486772865281",
+    "Spirit Spring Elixir": "rbxassetid://119257268851129",
+    "Iron Sword": "rbxassetid://77893498020652",
+    "Dragon Spear": "rbxassetid://115014657631615",
+    "Mountain Axe": "rbxassetid://80495551665907",
+    "Cloud Silk Robe": "rbxassetid://107143103618306",
+    "Iron Scale Armor": "rbxassetid://108200415790509"
+  },
+  "UI": {
+    "SpiritStone": "rbxassetid://77328888231754"
+  }
+}

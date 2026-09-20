@@ -1,0 +1,35 @@
+{
+  "timestamp": 1789828956,
+  "studio_window": "Cultivation World - Roblox Studio",
+  "captures": [
+    {
+      "step": "initial",
+      "path": "C:\\GMGAME\\immortal\\assets\\screenshots\\studio_window_initial_frame_1789828956.png"
+    },
+    {
+      "step": "playtest_active",
+      "path": "C:\\GMGAME\\immortal\\assets\\screenshots\\studio_window_playtest_active_1789828961.png"
+    },
+    {
+      "step": "character_movement",
+      "path": "C:\\GMGAME\\immortal\\assets\\screenshots\\studio_window_character_movement_1789828966.png"
+    },
+    {
+      "step": "skill_sword_slash",
+      "path": "C:\\GMGAME\\immortal\\assets\\screenshots\\studio_window_skill_sword_slash_1789828970.png"
+    },
+    {
+      "step": "skill_flame_ball",
+      "path": "C:\\GMGAME\\immortal\\assets\\screenshots\\studio_window_skill_flame_ball_1789828974.png"
+    },
+    {
+      "step": "cultivation_active",
+      "path": "C:\\GMGAME\\immortal\\assets\\screenshots\\studio_window_cultivation_active_1789828979.png"
+    },
+    {
+      "step": "final",
+      "path": "C:\\GMGAME\\immortal\\assets\\screenshots\\studio_window_test_complete_1789828995.png"
+    }
+  ],
+  "logic_audit": {}
+}

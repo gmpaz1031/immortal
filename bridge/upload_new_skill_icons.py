@@ -1,0 +1,230 @@
+"""
+bridge/upload_new_skill_icons.py
+Uploads the new transparent PNG skill icons to Roblox via Open Cloud,
+resolves their live image texture IDs using Roblox Studio bridge,
+updates src/shared/IconAssets.luau and assets/resolved_icons.json,
+and pushes the new textures live to Studio.
+"""
+
+import os
+import sys
+import json
+import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from roblox_asset_uploader import upload_asset
+from exec import exec_code
+
+ICONS_DIR = Path(__file__).resolve().parent.parent / "assets" / "icons"
+REGISTRY_FILE = Path(__file__).resolve().parent.parent / "assets" / "asset_registry.json"
+
+NEW_SKILLS = [
+    {"name": "Sword Slash", "display": "Xianxia_SwordSlash_CleanPNG_v1", "file": "skill_sword_slash.png"},
+    {"name": "Flame Ball", "display": "Xianxia_FlameBall_CleanPNG_v1", "file": "skill_flame_ball.png"},
+    {"name": "Palm Art", "display": "Xianxia_PalmArt_CleanPNG_v1", "file": "skill_palm_art.png"},
+    {"name": "Thunder Strike", "display": "Xianxia_ThunderStrike_CleanPNG_v1", "file": "skill_thunder_strike.png"},
+    {"name": "Multiple Swords", "display": "Xianxia_MultipleSwords_CleanPNG_v1", "file": "skill_multiple_swords.png"},
+    {"name": "Flame Spear", "display": "Xianxia_FlameSpear_CleanPNG_v1", "file": "skill_flame_spear.png"},
+]
+
+def load_registry():
+    if REGISTRY_FILE.exists():
+        try:
+            with open(REGISTRY_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+def resolve_texture(decal_id: str) -> str:
+    code = f"""
+    local ok, objs = pcall(function() return game:GetObjects("rbxassetid://{decal_id}") end)
+    if ok and objs and #objs > 0 and objs[1]:IsA("Decal") then
+        return objs[1].Texture
+    else
+        return "rbxassetid://{decal_id}"
+    end
+    """
+    ok, out = exec_code(code, timeout=10.0)
+    if ok and out and out.startswith("rbxassetid://"):
+        return out
+    return f"rbxassetid://{decal_id}"
+
+def main():
+    registry = load_registry()
+    resolved_skills = {}
+
+    print(f"Starting upload and resolution for {len(NEW_SKILLS)} skill icons...\n")
+
+    for item in NEW_SKILLS:
+        name = item["name"]
+        display = item["display"]
+        file_path = ICONS_DIR / item["file"]
+
+        if not file_path.exists():
+            print(f"[ERROR] File not found: {file_path}")
+            continue
+
+        asset_id = None
+        if display in registry and "assetId" in registry[display]:
+            asset_id = registry[display]["assetId"]
+            print(f"[CACHE] {name} already uploaded: Decal ID {asset_id}")
+        else:
+            print(f"[UPLOAD] Uploading {name} ({file_path.name})...")
+            try:
+                res = upload_asset(str(file_path), display, f"Clean transparent {name} skill icon for Immortal", "Decal")
+                asset_id = res["asset_id"]
+                registry = load_registry()
+            except Exception as e:
+                print(f"[ERROR] Upload failed for {name}: {e}")
+                continue
+            time.sleep(1.5)
+
+        # Resolve texture ID
+        print(f"[RESOLVE] Resolving live texture for {name} (Decal: {asset_id})...")
+        texture_url = resolve_texture(asset_id)
+        # Give Roblox a moment if it returned decal fallback
+        if texture_url == f"rbxassetid://{asset_id}":
+            time.sleep(2.0)
+            texture_url = resolve_texture(asset_id)
+        print(f"  -> {name}: {texture_url}\n")
+        resolved_skills[name] = texture_url
+
+    # Load existing resolved_icons.json
+    icons_json_path = Path(__file__).resolve().parent.parent / "assets" / "resolved_icons.json"
+    if icons_json_path.exists():
+        with open(icons_json_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    else:
+        data = {"Skills": {}, "Items": {}, "UI": {}}
+
+    # Update Skills
+    for k, v in resolved_skills.items():
+        data["Skills"][k] = v
+
+    with open(icons_json_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+    print("Updated assets/resolved_icons.json")
+
+    # Update src/shared/IconAssets.luau
+    icon_assets_path = Path(__file__).resolve().parent.parent / "src" / "shared" / "IconAssets.luau"
+    update_icon_assets_luau(icon_assets_path, data)
+    print("Updated src/shared/IconAssets.luau")
+
+    # Live update Roblox Studio
+    print("\nPushing live updates to Roblox Studio...")
+    live_update_studio(data["Skills"])
+
+def update_icon_assets_luau(file_path: Path, data: dict):
+    skills = data.get("Skills", {})
+    items = data.get("Items", {})
+    gold_coin = data.get("UI", {}).get("SpiritStone", "rbxassetid://77328888231754")
+
+    lines = [
+        "--!strict",
+        "-- src/shared/IconAssets.luau",
+        "-- Centralized Icon Asset ID Registry for Xianxia RPG",
+        "-- Auto-generated by bridge/upload_new_skill_icons.py with live resolved Roblox texture IDs",
+        "",
+        "local IconAssets = {}",
+        "",
+        "-- ============================================================================",
+        "-- SKILL ICONS (Used in hotbar slots and technique book)",
+        "-- ============================================================================",
+        "IconAssets.Skills = {"
+    ]
+    for k, v in skills.items():
+        lines.append(f'\t["{k}"] = "{v}",')
+    lines.extend([
+        "}",
+        "",
+        "-- ============================================================================",
+        "-- ITEM ICONS (Used in shop and inventory)",
+        "-- ============================================================================",
+        "IconAssets.Items = {"
+    ])
+    for k, v in items.items():
+        lines.append(f'\t["{k}"] = "{v}",')
+    lines.extend([
+        "}",
+        "",
+        "-- ============================================================================",
+        "-- UI ICONS (Used in HUD and labels)",
+        "-- ============================================================================",
+        "IconAssets.UI = {",
+        f'\tSpiritStone = "{gold_coin}",',
+        "}",
+        "",
+        "function IconAssets.getSkillIcon(skillName: string): string",
+        '\treturn IconAssets.Skills[skillName] or "rbxassetid://0"',
+        "end",
+        "",
+        "function IconAssets.getItemIcon(itemName: string): string",
+        '\treturn IconAssets.Items[itemName] or "rbxassetid://0"',
+        "end",
+        "",
+        "--- Returns true if the asset ID is a real uploaded asset (not the 0 placeholder)",
+        "function IconAssets.isUploaded(assetId: string): boolean",
+        '\treturn assetId ~= nil and assetId ~= "rbxassetid://0" and assetId ~= ""',
+        "end",
+        "",
+        "return IconAssets",
+        ""
+    ])
+    with open(file_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+
+def live_update_studio(skills: dict):
+    # Luau script to find all ImageLabels that represent skill icons and update them
+    skills_json = json.dumps(skills)
+    code = f"""
+    local HttpService = game:GetService("HttpService")
+    local StarterGui = game:GetService("StarterGui")
+    local Players = game:GetService("Players")
+    local skills = HttpService:JSONDecode([==[{skills_json}]==])
+
+    local updatedCount = 0
+
+    local defaultSlotSkills = {{
+        [1] = "Sword Slash",
+        [2] = "Flame Ball",
+        [3] = "Palm Art",
+        [4] = "Thunder Strike",
+    }}
+
+    local function updateContainer(root)
+        if not root then return end
+        for _, desc in ipairs(root:GetDescendants()) do
+            if desc:IsA("ImageLabel") and desc.Name == "IconImage" then
+                -- Check parent or slot name
+                local p = desc.Parent
+                if p then
+                    local slotNum = p.Name:match("Slot[_-]?(%d+)")
+                    if slotNum then
+                        local idx = tonumber(slotNum)
+                        local skillName = defaultSlotSkills[idx]
+                        if skillName and skills[skillName] then
+                            desc.Image = skills[skillName]
+                            desc.BackgroundTransparency = 1
+                            updatedCount = updatedCount + 1
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    updateContainer(StarterGui)
+    for _, pl in ipairs(Players:GetPlayers()) do
+        local pg = pl:FindFirstChild("PlayerGui")
+        if pg then updateContainer(pg) end
+    end
+
+    return "Updated " .. tostring(updatedCount) .. " ImageLabels in Studio"
+    """
+    ok, out = exec_code(code)
+    print("Live Studio result:", ok, out)
+
+if __name__ == "__main__":
+    main()

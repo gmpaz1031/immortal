@@ -1,893 +1,614 @@
 --!strict
---[[
-    SkillClient.client.luau
-    Anime Combat Skill System — Client HUD Controller.
-    Handles:
-      • 4-slot hotbar at bottom-center (Z / X / V / F)
-      • Skill Book modal toggled with K
-      • Cooldown overlays + countdown text
-      • Lock-on reticle for Flame Spear
-      • Procedural cast animations
-      • VFX replication via SkillFXHelper
-      • Communicates with SkillService (server) via SkillRemotes
-]]
+-- src/gui/SkillUI/SkillClient.client.luau
+-- Xianxia RPG Martial Arts Skill Hotbar & Technique Manual Controller
+-- Features responsive keybinds, mouse aiming, prompt notifications, and synchronized VFX.
+-- ZERO runtime ScreenGui creation — strictly binds to pre-existing edit-mode StarterGui elements.
 
-local Players          = game:GetService("Players")
+local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
-local TweenService     = game:GetService("TweenService")
-local RunService       = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
 
 local localPlayer = Players.LocalPlayer
-local playerGui   = localPlayer:WaitForChild("PlayerGui") :: PlayerGui
+local ui = script.Parent :: ScreenGui
 
--- Shared modules
-local Shared        = ReplicatedStorage:WaitForChild("Shared")
-local SkillConfig   = require(Shared:WaitForChild("SkillConfig"))
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local SkillConfig = require(Shared:WaitForChild("SkillConfig"))
 local SkillFXHelper = require(Shared:WaitForChild("SkillFXHelper"))
+local GuofengTheme = require(Shared:WaitForChild("GuofengTheme"))
+local IconAssets = require(Shared:WaitForChild("IconAssets"))
 
--- Remotes (created by server SkillService / project.json)
-local remotesFolder         = ReplicatedStorage:WaitForChild("SkillRemotes") :: Folder
-local skillRequestRemote    = remotesFolder:WaitForChild("SkillRequest")    :: RemoteEvent
-local skillReplicateRemote  = remotesFolder:WaitForChild("SkillReplicate")  :: RemoteEvent
-local skillEquipReqRemote   = remotesFolder:WaitForChild("SkillEquipRequest") :: RemoteEvent
-local skillDataUpdateRemote = remotesFolder:WaitForChild("SkillDataUpdate")  :: RemoteEvent
+-- Skill Remotes
+local remotesFolder = ReplicatedStorage:WaitForChild("SkillRemotes") :: Folder
+local skillRequestRemote = remotesFolder:WaitForChild("SkillRequest") :: RemoteEvent
+local skillReplicateRemote = remotesFolder:WaitForChild("SkillReplicate") :: RemoteEvent
+local skillEquipReqRemote = remotesFolder:WaitForChild("SkillEquipRequest") :: RemoteEvent
+local skillDataUpdateRemote = remotesFolder:WaitForChild("SkillDataUpdate") :: RemoteEvent
 
---------------------------------------------------------------------------------
--- ScreenGui Setup — robust fallback
---------------------------------------------------------------------------------
-local screenGui: ScreenGui
-do
-	local existing = playerGui:FindFirstChild("SkillUI")
-	if existing and existing:IsA("ScreenGui") then
-		screenGui = existing :: ScreenGui
-	elseif script.Parent:IsA("ScreenGui") then
-		screenGui = script.Parent :: ScreenGui
-	else
-		-- Last resort: create our own ScreenGui
-		local sg = Instance.new("ScreenGui")
-		sg.Name           = "SkillUI"
-		sg.ResetOnSpawn   = false
-		sg.DisplayOrder   = 5
-		sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-		sg.Parent         = playerGui
-		screenGui = sg
-	end
-	screenGui.Enabled = true
-end
+-- Pre-existing StarterGui elements in edit mode
+local hotbar = ui:WaitForChild("GuofengSkillHotbar") :: Frame
+local bookModal = ui:WaitForChild("MartialArtsBookModal") :: Frame
+local closeBookBtn = bookModal:WaitForChild("CloseBtn") :: TextButton
+local skillList = bookModal:WaitForChild("SkillList") :: ScrollingFrame
 
---------------------------------------------------------------------------------
--- State
---------------------------------------------------------------------------------
--- Slots: Z=1, X=2, V=3, F=4
-local slotKeyCodes: { [number]: Enum.KeyCode } = {
-	[1] = Enum.KeyCode.Z,
-	[2] = Enum.KeyCode.X,
-	[3] = Enum.KeyCode.V,
-	[4] = Enum.KeyCode.F,
-}
-local slotKeyNames: { [number]: string } = {
-	[1] = "Z", [2] = "X", [3] = "V", [4] = "F",
-}
-
-local equippedSlots: { [number]: string } = {
-	[1] = SkillConfig.DefaultSlots[1] or "",
-	[2] = SkillConfig.DefaultSlots[2] or "",
-	[3] = SkillConfig.DefaultSlots[3] or "",
-	[4] = SkillConfig.DefaultSlots[4] or "",
+local slotSkills: { [number]: string } = {
+	[1] = SkillConfig.DefaultSlots[1] or "Sword Slash",
+	[2] = SkillConfig.DefaultSlots[2] or "Flame Ball",
+	[3] = SkillConfig.DefaultSlots[3] or "Palm Art",
+	[4] = SkillConfig.DefaultSlots[4] or "Thunder Strike",
 }
 
 local clientCooldowns: { [string]: number } = {}
+local slotFrames: { [number]: Frame } = {}
+local slotButtons: { [number]: TextButton } = {}
+local slotIcons: { [number]: TextLabel } = {}
+local slotIconImages: { [number]: ImageLabel } = {}
+local slotNames: { [number]: TextLabel } = {}
+local slotCdOverlays: { [number]: Frame } = {}
+local slotCdTexts: { [number]: TextLabel } = {}
+
 local lockedTargetModel: Model? = nil
+local selectedBookSkill: string? = nil
 
--- UI References
-local slotUIButtons:      { [number]: Frame }     = {}
-local slotCooldownFrames: { [number]: Frame }     = {}
-local slotCooldownTexts:  { [number]: TextLabel } = {}
-local slotIconLabels:     { [number]: TextLabel } = {}
-local slotNameLabels:     { [number]: TextLabel } = {}
-local slotKeyLabels:      { [number]: TextLabel } = {}
+-- ============================================================================
+-- PROMPT NOTIFICATION BANNER
+-- ============================================================================
+local function showPromptNotification(message: string, color: Color3?)
+	local oldBanner = ui:FindFirstChild("PromptBanner")
+	if oldBanner then oldBanner:Destroy() end
 
---------------------------------------------------------------------------------
--- Color Palette
---------------------------------------------------------------------------------
-local DARK_BG    = Color3.fromRGB(12,  14,  22)
-local MID_BG     = Color3.fromRGB(20,  24,  36)
-local BORDER_CLR = Color3.fromRGB(60,  80, 130)
-local TEXT_WHITE = Color3.fromRGB(240, 245, 255)
-local GOLD_CLR   = Color3.fromRGB(255, 200, 60)
-local DIM_TEXT   = Color3.fromRGB(140, 150, 175)
+	local banner = Instance.new("TextLabel")
+	banner.Name = "PromptBanner"
+	banner.BackgroundColor3 = Color3.fromRGB(12, 26, 22)
+	banner.BackgroundTransparency = 0.1
+	banner.Size = UDim2.new(0, 360, 0, 40)
+	banner.Position = UDim2.new(0.5, -180, 0.72, 0)
+	banner.Font = GuofengTheme.Fonts.Header
+	banner.Text = message
+	banner.TextColor3 = color or GuofengTheme.Colors.GoldLight
+	banner.TextSize = 13
+	banner.ZIndex = 50
+	banner.Parent = ui
 
---------------------------------------------------------------------------------
--- Helper: rounded corner
---------------------------------------------------------------------------------
-local function addCorner(parent: Instance, radius: number?)
-	local c = Instance.new("UICorner")
-	c.CornerRadius = UDim.new(0, radius or 8)
-	c.Parent = parent
-	return c
-end
+	local cr = Instance.new("UICorner")
+	cr.CornerRadius = UDim.new(0, 8)
+	cr.Parent = banner
 
-local function addStroke(parent: Instance, color: Color3?, thickness: number?)
-	local s = Instance.new("UIStroke")
-	s.Color     = color or BORDER_CLR
-	s.Thickness = thickness or 1.5
-	s.Parent    = parent
-	return s
-end
+	local st = Instance.new("UIStroke")
+	st.Color = color or GuofengTheme.Colors.GoldBorder
+	st.Thickness = 1.8
+	st.Parent = banner
 
---------------------------------------------------------------------------------
--- Build Hotbar
---------------------------------------------------------------------------------
-local hotbarFrame: Frame
-
-local function buildHotbar()
-	if hotbarFrame then hotbarFrame:Destroy() end
-
-	hotbarFrame = Instance.new("Frame")
-	hotbarFrame.Name            = "SkillHotbar"
-	hotbarFrame.Size            = UDim2.new(0, 340, 0, 88)
-	hotbarFrame.Position        = UDim2.new(0.5, -170, 1, -106)
-	hotbarFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-	hotbarFrame.BackgroundTransparency = 0.55
-	hotbarFrame.BorderSizePixel = 0
-	hotbarFrame.Parent          = screenGui
-	addCorner(hotbarFrame, 12)
-	addStroke(hotbarFrame, BORDER_CLR, 1.5)
-
-	local layout = Instance.new("UIListLayout")
-	layout.FillDirection  = Enum.FillDirection.Horizontal
-	layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-	layout.VerticalAlignment   = Enum.VerticalAlignment.Center
-	layout.Padding        = UDim.new(0, 7)
-	layout.Parent         = hotbarFrame
-
-	for slot = 1, 4 do
-		local skillName = equippedSlots[slot] or ""
-		local skillDef  = SkillConfig.Skills[skillName]
-
-		-- Slot card
-		local card = Instance.new("Frame")
-		card.Name   = "Slot" .. slot
-		card.Size   = UDim2.new(0, 76, 0, 76)
-		card.BackgroundColor3 = MID_BG
-		card.BorderSizePixel  = 0
-		card.Parent = hotbarFrame
-		addCorner(card, 10)
-		addStroke(card, skillDef and skillDef.Color or BORDER_CLR, 2)
-
-		-- Cooldown overlay (sweeps from top)
-		local cdOverlay = Instance.new("Frame")
-		cdOverlay.Name   = "CooldownOverlay"
-		cdOverlay.Size   = UDim2.new(1, 0, 0, 0)
-		cdOverlay.Position = UDim2.new(0, 0, 0, 0)
-		cdOverlay.AnchorPoint = Vector2.new(0, 0)
-		cdOverlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-		cdOverlay.BackgroundTransparency = 0.35
-		cdOverlay.BorderSizePixel = 0
-		cdOverlay.ZIndex  = 3
-		cdOverlay.Visible = false
-		cdOverlay.Parent  = card
-		addCorner(cdOverlay, 10)
-
-		-- Cooldown countdown text
-		local cdText = Instance.new("TextLabel")
-		cdText.Name   = "CooldownText"
-		cdText.Size   = UDim2.new(1, 0, 1, 0)
-		cdText.BackgroundTransparency = 1
-		cdText.Text       = ""
-		cdText.TextColor3 = TEXT_WHITE
-		cdText.TextSize   = 17
-		cdText.Font       = Enum.Font.GothamBold
-		cdText.ZIndex     = 4
-		cdText.Visible    = false
-		cdText.Parent     = card
-
-		-- Skill icon symbol (large emoji/text)
-		local iconLabel = Instance.new("TextLabel")
-		iconLabel.Name  = "Icon"
-		iconLabel.Size  = UDim2.new(1, 0, 0, 38)
-		iconLabel.Position = UDim2.new(0, 0, 0, 8)
-		iconLabel.BackgroundTransparency = 1
-		iconLabel.Text       = skillDef and skillDef.IconSymbol or "?"
-		iconLabel.TextColor3 = skillDef and skillDef.Color or DIM_TEXT
-		iconLabel.TextSize   = 26
-		iconLabel.Font       = Enum.Font.GothamBold
-		iconLabel.ZIndex     = 2
-		iconLabel.Parent     = card
-
-		-- Short skill name (1 word)
-		local nameLabel = Instance.new("TextLabel")
-		nameLabel.Name  = "SkillName"
-		nameLabel.Size  = UDim2.new(1, -4, 0, 14)
-		nameLabel.Position = UDim2.new(0, 2, 0, 46)
-		nameLabel.BackgroundTransparency = 1
-		nameLabel.Text       = skillDef and skillDef.Name:match("^%S+") or "-"
-		nameLabel.TextColor3 = DIM_TEXT
-		nameLabel.TextSize   = 10
-		nameLabel.Font       = Enum.Font.Gotham
-		nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
-		nameLabel.ZIndex     = 2
-		nameLabel.Parent     = card
-
-		-- Keybind label at bottom
-		local keyLabel = Instance.new("TextLabel")
-		keyLabel.Name  = "KeyBind"
-		keyLabel.Size  = UDim2.new(1, 0, 0, 14)
-		keyLabel.Position = UDim2.new(0, 0, 1, -16)
-		keyLabel.BackgroundTransparency = 1
-		keyLabel.Text       = "[" .. slotKeyNames[slot] .. "]"
-		keyLabel.TextColor3 = GOLD_CLR
-		keyLabel.TextSize   = 11
-		keyLabel.Font       = Enum.Font.GothamBold
-		keyLabel.ZIndex     = 2
-		keyLabel.Parent     = card
-
-		-- Hover effect
-		card.MouseEnter:Connect(function()
-			TweenService:Create(card, TweenInfo.new(0.1), {
-				BackgroundColor3 = Color3.fromRGB(30, 36, 54),
-			}):Play()
-		end)
-		card.MouseLeave:Connect(function()
-			TweenService:Create(card, TweenInfo.new(0.1), {
-				BackgroundColor3 = MID_BG,
-			}):Play()
-		end)
-
-		slotUIButtons[slot]      = card
-		slotCooldownFrames[slot] = cdOverlay
-		slotCooldownTexts[slot]  = cdText
-		slotIconLabels[slot]     = iconLabel
-		slotNameLabels[slot]     = nameLabel
-		slotKeyLabels[slot]      = keyLabel
-	end
-end
-
-local function refreshHotbarUI()
-	for slot = 1, 4 do
-		local skillName = equippedSlots[slot] or ""
-		local skillDef  = SkillConfig.Skills[skillName]
-		local card      = slotUIButtons[slot]
-		if not card then continue end
-
-		local stroke = card:FindFirstChildOfClass("UIStroke")
-		if stroke then
-			stroke.Color = skillDef and skillDef.Color or BORDER_CLR
+	task.spawn(function()
+		for i = 1, 15 do
+			banner.Position = banner.Position - UDim2.new(0, 0, 0, 1)
+			task.wait(0.03)
 		end
-
-		if slotIconLabels[slot] then
-			slotIconLabels[slot].Text       = skillDef and skillDef.IconSymbol or "?"
-			slotIconLabels[slot].TextColor3 = skillDef and skillDef.Color or DIM_TEXT
+		task.wait(0.6)
+		for i = 1, 15 do
+			banner.TextTransparency = i / 15
+			banner.BackgroundTransparency = 0.1 + (i / 15) * 0.9
+			st.Transparency = i / 15
+			task.wait(0.03)
 		end
-		if slotNameLabels[slot] then
-			slotNameLabels[slot].Text = skillDef and skillDef.Name:match("^%S+") or "-"
-		end
-	end
-end
-
---------------------------------------------------------------------------------
--- Skill Book Toggle Button (bottom-left)
---------------------------------------------------------------------------------
-local bookToggleBtn: TextButton
-local bookModal:     Frame
-local skillListContainer: ScrollingFrame
-local modalSlotBarSlots: { Frame } = {}
-local toggleSkillBook: () -> ()
-
-local function buildBookToggleButton()
-	bookToggleBtn = Instance.new("TextButton")
-	bookToggleBtn.Name            = "SkillBookToggle"
-	bookToggleBtn.Size            = UDim2.new(0, 120, 0, 38)
-	bookToggleBtn.Position        = UDim2.new(0, 14, 1, -56)
-	bookToggleBtn.BackgroundColor3 = DARK_BG
-	bookToggleBtn.BorderSizePixel  = 0
-	bookToggleBtn.Text             = "⚡ Skills [K]"
-	bookToggleBtn.TextColor3       = GOLD_CLR
-	bookToggleBtn.TextSize         = 14
-	bookToggleBtn.Font             = Enum.Font.GothamBold
-	bookToggleBtn.Parent           = screenGui
-	addCorner(bookToggleBtn, 8)
-	addStroke(bookToggleBtn, GOLD_CLR, 1.5)
-
-	bookToggleBtn.Activated:Connect(function()
-		if toggleSkillBook then
-			toggleSkillBook()
-		end
+		banner:Destroy()
 	end)
 end
 
-local function buildSkillBookModal()
-	bookModal = Instance.new("Frame")
-	bookModal.Name            = "SkillBookModal"
-	bookModal.Size            = UDim2.new(0, 480, 0, 520)
-	bookModal.Position        = UDim2.new(0.5, -240, 0.5, -260)
-	bookModal.BackgroundColor3 = DARK_BG
-	bookModal.BackgroundTransparency = 0.08
-	bookModal.BorderSizePixel  = 0
-	bookModal.Visible          = false
-	bookModal.ZIndex           = 10
-	bookModal.Parent           = screenGui
-	addCorner(bookModal, 14)
-	addStroke(bookModal, GOLD_CLR, 2)
+-- ============================================================================
+-- LOCK-ON RETICLE HELPER
+-- ============================================================================
+local lockOnReticle: BillboardGui? = nil
+local function getLockOnReticle(): BillboardGui
+	if lockOnReticle and lockOnReticle.Parent then return lockOnReticle end
 
-	-- Title bar
-	local title = Instance.new("TextLabel")
-	title.Size   = UDim2.new(1, -20, 0, 38)
-	title.Position = UDim2.new(0, 10, 0, 8)
-	title.BackgroundTransparency = 1
-	title.Text       = "⚔️  Skill Book"
-	title.TextColor3 = GOLD_CLR
-	title.TextSize   = 20
-	title.Font       = Enum.Font.GothamBold
-	title.TextXAlignment = Enum.TextXAlignment.Left
-	title.ZIndex     = 11
-	title.Parent     = bookModal
+	local bg = Instance.new("BillboardGui")
+	bg.Name = "SkillLockOnReticle"
+	bg.Size = UDim2.new(0, 44, 0, 44)
+	bg.AlwaysOnTop = true
+	bg.ResetOnSpawn = false
+	bg.Enabled = false
+	bg.Parent = ui
 
-	-- Close button
-	local closeBtn = Instance.new("TextButton")
-	closeBtn.Size   = UDim2.new(0, 32, 0, 32)
-	closeBtn.Position = UDim2.new(1, -40, 0, 6)
-	closeBtn.BackgroundColor3 = Color3.fromRGB(160, 40, 40)
-	closeBtn.Text       = "✕"
-	closeBtn.TextColor3 = TEXT_WHITE
-	closeBtn.TextSize   = 16
-	closeBtn.Font       = Enum.Font.GothamBold
-	closeBtn.ZIndex     = 12
-	closeBtn.Parent     = bookModal
-	addCorner(closeBtn, 6)
-	closeBtn.Activated:Connect(function()
-		bookModal.Visible = false
+	local ring = Instance.new("Frame")
+	ring.Name = "Ring"
+	ring.Size = UDim2.new(1, 0, 1, 0)
+	ring.BackgroundTransparency = 1
+	ring.Parent = bg
+
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = GuofengTheme.Colors.RedCrimson
+	stroke.Thickness = 2.5
+	stroke.Parent = ring
+
+	local cr = Instance.new("UICorner")
+	cr.CornerRadius = UDim.new(1, 0)
+	cr.Parent = ring
+
+	lockOnReticle = bg
+	return bg
+end
+
+local function updateAimReticle(targetPos: Vector3?, visible: boolean)
+	local reticle = getLockOnReticle()
+	if visible and targetPos then
+		reticle.Enabled = true
+		reticle.Adornee = workspace.Terrain
+		reticle.ExtentsOffsetWorldSpace = targetPos
+	else
+		reticle.Enabled = false
+	end
+end
+
+-- ============================================================================
+-- MARTIAL ANIMATIONS & CAMERA HELPERS
+-- ============================================================================
+local function playCastAnimation(skillName: string)
+	local char = localPlayer.Character
+	if not char then return end
+	local torso = char:FindFirstChild("Torso") :: BasePart?
+	local rightShoulder = torso and torso:FindFirstChild("Right Shoulder") :: Motor6D?
+	if not rightShoulder then return end
+
+	local origC0 = rightShoulder.C0
+	local targetC0 = CFrame.new(1.0, 0.5, -0.5) * CFrame.Angles(math.rad(110), math.rad(-40), math.rad(50))
+	if skillName == "Palm Art" then
+		targetC0 = CFrame.new(1.0, 0.5, -0.7) * CFrame.Angles(math.rad(90), 0, math.rad(15))
+	elseif skillName == "Thunder Strike" then
+		targetC0 = CFrame.new(1.0, 1.2, 0) * CFrame.Angles(math.rad(175), math.rad(10), 0)
+	end
+
+	local t1 = TweenService:Create(rightShoulder, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { C0 = targetC0 })
+	t1:Play()
+	t1.Completed:Connect(function()
+		task.wait(0.14)
+		local t2 = TweenService:Create(rightShoulder, TweenInfo.new(0.20, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { C0 = origC0 })
+		t2:Play()
 	end)
-
-	-- Divider line
-	local div = Instance.new("Frame")
-	div.Size   = UDim2.new(1, -20, 0, 1)
-	div.Position = UDim2.new(0, 10, 0, 50)
-	div.BackgroundColor3 = BORDER_CLR
-	div.BorderSizePixel  = 0
-	div.ZIndex = 11
-	div.Parent = bookModal
-
-	-- Equipped slot bar label
-	local slotBarLabel = Instance.new("TextLabel")
-	slotBarLabel.Size   = UDim2.new(1, -20, 0, 18)
-	slotBarLabel.Position = UDim2.new(0, 10, 0, 58)
-	slotBarLabel.BackgroundTransparency = 1
-	slotBarLabel.Text       = "Equipped Slots  (click to clear)"
-	slotBarLabel.TextColor3 = DIM_TEXT
-	slotBarLabel.TextSize   = 12
-	slotBarLabel.Font       = Enum.Font.Gotham
-	slotBarLabel.TextXAlignment = Enum.TextXAlignment.Left
-	slotBarLabel.ZIndex     = 11
-	slotBarLabel.Parent     = bookModal
-
-	-- Slot mini-bar (4 mini slots)
-	local slotBar = Instance.new("Frame")
-	slotBar.Size   = UDim2.new(1, -20, 0, 60)
-	slotBar.Position = UDim2.new(0, 10, 0, 78)
-	slotBar.BackgroundTransparency = 1
-	slotBar.ZIndex = 11
-	slotBar.Parent = bookModal
-
-	local slotLayout = Instance.new("UIListLayout")
-	slotLayout.FillDirection  = Enum.FillDirection.Horizontal
-	slotLayout.Padding        = UDim.new(0, 6)
-	slotLayout.Parent         = slotBar
-
-	for s = 1, 4 do
-		local miniSlot = Instance.new("TextButton")
-		miniSlot.Size   = UDim2.new(0, 100, 0, 58)
-		miniSlot.BackgroundColor3 = MID_BG
-		miniSlot.BorderSizePixel  = 0
-		miniSlot.Text       = slotKeyNames[s] .. "\n" .. (equippedSlots[s] or "-")
-		miniSlot.TextColor3 = GOLD_CLR
-		miniSlot.TextSize   = 11
-		miniSlot.Font       = Enum.Font.GothamBold
-		miniSlot.TextWrapped = true
-		miniSlot.ZIndex     = 12
-		miniSlot.Parent     = slotBar
-		addCorner(miniSlot, 8)
-		addStroke(miniSlot, BORDER_CLR, 1.5)
-
-		local capturedSlot = s
-		miniSlot.Activated:Connect(function()
-			equippedSlots[capturedSlot] = ""
-			skillEquipReqRemote:FireServer("UnequipSlot", capturedSlot, "")
-			refreshHotbarUI()
-		end)
-
-		modalSlotBarSlots[s] = miniSlot
-	end
-
-	-- Divider
-	local div2 = Instance.new("Frame")
-	div2.Size   = UDim2.new(1, -20, 0, 1)
-	div2.Position = UDim2.new(0, 10, 0, 144)
-	div2.BackgroundColor3 = BORDER_CLR
-	div2.BorderSizePixel  = 0
-	div2.ZIndex = 11
-	div2.Parent = bookModal
-
-	-- Skill list label
-	local listLabel = Instance.new("TextLabel")
-	listLabel.Size   = UDim2.new(1, -20, 0, 18)
-	listLabel.Position = UDim2.new(0, 10, 0, 150)
-	listLabel.BackgroundTransparency = 1
-	listLabel.Text       = "All Skills  (click to equip)"
-	listLabel.TextColor3 = DIM_TEXT
-	listLabel.TextSize   = 12
-	listLabel.Font       = Enum.Font.Gotham
-	listLabel.TextXAlignment = Enum.TextXAlignment.Left
-	listLabel.ZIndex     = 11
-	listLabel.Parent     = bookModal
-
-	-- Scrollable skill list
-	skillListContainer = Instance.new("ScrollingFrame")
-	skillListContainer.Size   = UDim2.new(1, -20, 0, 310)
-	skillListContainer.Position = UDim2.new(0, 10, 0, 172)
-	skillListContainer.BackgroundColor3 = MID_BG
-	skillListContainer.BackgroundTransparency = 0.3
-	skillListContainer.BorderSizePixel  = 0
-	skillListContainer.ScrollBarThickness = 4
-	skillListContainer.CanvasSize = UDim2.new(0, 0, 0, 0)
-	skillListContainer.ZIndex    = 11
-	skillListContainer.Parent    = bookModal
-	addCorner(skillListContainer, 8)
-
-	local listLayout = Instance.new("UIListLayout")
-	listLayout.FillDirection = Enum.FillDirection.Vertical
-	listLayout.Padding       = UDim.new(0, 5)
-	listLayout.Parent        = skillListContainer
 end
 
-local function renderModalSlotBar()
-	for s = 1, 4 do
-		local btn = modalSlotBarSlots[s]
-		if btn then
-			local skillName = equippedSlots[s] or ""
-			local skillDef  = SkillConfig.Skills[skillName]
-			btn.Text        = slotKeyNames[s] .. "\n" .. (skillName ~= "" and skillName or "-")
-			btn.TextColor3  = skillDef and skillDef.Color or DIM_TEXT
-			local stroke = btn:FindFirstChildOfClass("UIStroke")
-			if stroke then stroke.Color = skillDef and skillDef.Color or BORDER_CLR end
-		end
-	end
-end
-
-local function renderSkillList()
-	-- Clear old entries
-	for _, child in ipairs(skillListContainer:GetChildren()) do
-		if not child:IsA("UIListLayout") then child:Destroy() end
-	end
-
-	local totalHeight = 0
-	for _, skillName in ipairs(SkillConfig.SkillList) do
-		local skillDef = SkillConfig.Skills[skillName]
-		if not skillDef then continue end
-
-		local row = Instance.new("TextButton")
-		row.Size   = UDim2.new(1, -8, 0, 62)
-		row.BackgroundColor3 = DARK_BG
-		row.BorderSizePixel  = 0
-		row.Text             = ""
-		row.ZIndex           = 12
-		row.Parent           = skillListContainer
-		addCorner(row, 8)
-
-		-- Icon
-		local icon = Instance.new("TextLabel")
-		icon.Size   = UDim2.new(0, 48, 0, 48)
-		icon.Position = UDim2.new(0, 8, 0, 7)
-		icon.BackgroundTransparency = 1
-		icon.Text       = skillDef.IconSymbol
-		icon.TextColor3 = skillDef.Color
-		icon.TextSize   = 30
-		icon.Font       = Enum.Font.GothamBold
-		icon.ZIndex     = 13
-		icon.Parent     = row
-
-		-- Name
-		local nameL = Instance.new("TextLabel")
-		nameL.Size   = UDim2.new(1, -130, 0, 20)
-		nameL.Position = UDim2.new(0, 62, 0, 8)
-		nameL.BackgroundTransparency = 1
-		nameL.Text       = skillDef.Name
-		nameL.TextColor3 = TEXT_WHITE
-		nameL.TextSize   = 14
-		nameL.Font       = Enum.Font.GothamBold
-		nameL.TextXAlignment = Enum.TextXAlignment.Left
-		nameL.ZIndex     = 13
-		nameL.Parent     = row
-
-		-- Stats line
-		local stats = Instance.new("TextLabel")
-		stats.Size   = UDim2.new(1, -130, 0, 16)
-		stats.Position = UDim2.new(0, 62, 0, 26)
-		stats.BackgroundTransparency = 1
-		stats.Text       = string.format("DMG: %d   CD: %.1fs   Range: %d", skillDef.BaseDamage, skillDef.Cooldown, skillDef.Range)
-		stats.TextColor3 = DIM_TEXT
-		stats.TextSize   = 11
-		stats.Font       = Enum.Font.Gotham
-		stats.TextXAlignment = Enum.TextXAlignment.Left
-		stats.ZIndex     = 13
-		stats.Parent     = row
-
-		-- Description
-		local desc = Instance.new("TextLabel")
-		desc.Size   = UDim2.new(1, -130, 0, 14)
-		desc.Position = UDim2.new(0, 62, 0, 42)
-		desc.BackgroundTransparency = 1
-		desc.Text       = skillDef.Description
-		desc.TextColor3 = DIM_TEXT
-		desc.TextSize   = 10
-		desc.Font       = Enum.Font.Gotham
-		desc.TextXAlignment = Enum.TextXAlignment.Left
-		desc.TextTruncate   = Enum.TextTruncate.AtEnd
-		desc.ZIndex     = 13
-		desc.Parent     = row
-
-		-- Equip buttons (slots 1-4)
-		for s = 1, 4 do
-			local slotBtn = Instance.new("TextButton")
-			slotBtn.Size   = UDim2.new(0, 28, 0, 28)
-			slotBtn.Position = UDim2.new(1, -136 + (s - 1) * 32, 0, 17)
-			slotBtn.BackgroundColor3 = MID_BG
-			slotBtn.BorderSizePixel  = 0
-			slotBtn.Text       = slotKeyNames[s]
-			slotBtn.TextColor3 = equippedSlots[s] == skillName and skillDef.Color or DIM_TEXT
-			slotBtn.TextSize   = 12
-			slotBtn.Font       = Enum.Font.GothamBold
-			slotBtn.ZIndex     = 14
-			slotBtn.Parent     = row
-			addCorner(slotBtn, 5)
-
-			local capturedSlot = s
-			local capturedSkill = skillName
-			slotBtn.Activated:Connect(function()
-				equippedSlots[capturedSlot] = capturedSkill
-				skillEquipReqRemote:FireServer("EquipSlot", capturedSlot, capturedSkill)
-				refreshHotbarUI()
-				renderModalSlotBar()
-				renderSkillList()
-			end)
-		end
-
-		totalHeight = totalHeight + 67
-	end
-
-	skillListContainer.CanvasSize = UDim2.new(0, 0, 0, totalHeight)
-end
-
-toggleSkillBook = function()
-	if not bookModal then
-		buildSkillBookModal()
-	end
-	if not bookModal then return end
-
-	bookModal.Visible = not bookModal.Visible
-	if bookModal.Visible then
-		renderModalSlotBar()
-		renderSkillList()
-
-		-- Pop-in animation
-		bookModal.Size = UDim2.new(0, 380, 0, 420)
-		TweenService:Create(bookModal, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-			Size     = UDim2.new(0, 480, 0, 520),
-			Position = UDim2.new(0.5, -240, 0.5, -260),
-		}):Play()
-	end
-end
-
--- Initialize UI immediately so HUD and toggle button appear with zero delay
-buildHotbar()
-buildBookToggleButton()
-buildSkillBookModal()
-refreshHotbarUI()
-
---------------------------------------------------------------------------------
--- Lock-On Reticle for Flame Spear
---------------------------------------------------------------------------------
-local reticle: SelectionBox
-
-local function ensureLockOnReticle(): SelectionBox
-	if not reticle then
-		reticle = Instance.new("SelectionBox")
-		reticle.Color3       = Color3.fromRGB(255, 160, 20)
-		reticle.LineThickness = 0.08
-		reticle.SurfaceTransparency = 0.85
-		reticle.SurfaceColor3 = Color3.fromRGB(255, 160, 20)
-		reticle.Visible      = false
-		reticle.Parent       = Workspace
-	end
-	return reticle
-end
-
-local function updateLockOnTarget(): Model?
-	local character = localPlayer.Character
-	if not character then return nil end
-
-	local camera = workspace.CurrentCamera
-	if not camera then return nil end
-
-	local camPos = camera.CFrame.Position
-	local camDir = camera.CFrame.LookVector
-
-	local best: Model?     = nil
-	local bestScore        = math.huge
-	local maxRange         = SkillConfig.Skills["Flame Spear"] and SkillConfig.Skills["Flame Spear"].Range or 70
-
-	for _, obj in ipairs(workspace:GetDescendants()) do
-		if obj:IsA("Humanoid") and obj.Health > 0 then
-			local model = obj.Parent :: Model?
-			if model and model ~= character then
-				local root = model:FindFirstChild("HumanoidRootPart")
-					or model:FindFirstChild("Torso")
-				if root and root:IsA("BasePart") then
-					local toTarget = root.Position - camPos
-					local dist     = toTarget.Magnitude
-					if dist <= maxRange then
-						local dot    = toTarget.Unit:Dot(camDir)
-						local angle  = math.acos(math.clamp(dot, -1, 1))
-						local score  = angle * 2 + dist * 0.01
-						if angle < math.rad(35) and score < bestScore then
-							bestScore = score
-							best = model
-						end
-					end
-				end
-			end
-		end
-	end
-
-	return best
-end
-
---------------------------------------------------------------------------------
--- Procedural Cast Animation (arm swing via BodyGyro / Weld trick)
---------------------------------------------------------------------------------
-local function playProceduralCastAnim(skillName: string)
-	local character = localPlayer.Character
-	if not character then return end
-
-	local humanoid = character:FindFirstChildOfClass("Humanoid")
-	if not humanoid then return end
-
-	local animator = humanoid:FindFirstChildOfClass("Animator")
-	if not animator then return end
-
-	-- We don't have custom animations — just do a quick camera punch
+local function tweakCamera(mode: string, targetPos: Vector3?)
 	local camera = workspace.CurrentCamera
 	if not camera then return end
 
-	local skillDef = SkillConfig.Skills[skillName]
-	local castTime = (skillDef and skillDef.CastTime) or 0.25
-
-	-- Brief upward punch with tween
-	local punchCF = camera.CFrame * CFrame.Angles(-0.12, 0.06, 0)
-	TweenService:Create(camera, TweenInfo.new(castTime * 0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-		CFrame = punchCF,
-	}):Play()
-	task.delay(castTime * 0.5, function()
-		TweenService:Create(camera, TweenInfo.new(castTime * 0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-			CFrame = camera.CFrame,
-		}):Play()
-	end)
-end
-
---------------------------------------------------------------------------------
--- Aim / Target Helper
---------------------------------------------------------------------------------
-local function getAimTarget(range: number): (Vector3, Vector3)
-	local camera    = workspace.CurrentCamera
-	local character = localPlayer.Character
-	if not camera or not character then
-		local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
-		local origin = root and root.Position or Vector3.zero
-		return origin + Vector3.new(0, 0, -range), -Vector3.zAxis
+	if mode == "Shake" then
+		task.spawn(function()
+			local origCF = camera.CFrame
+			for i = 1, 6 do
+				local offset = Vector3.new(math.random(-25, 25) / 100, math.random(-25, 25) / 100, 0)
+				camera.CFrame = origCF + offset
+				task.wait(0.02)
+			end
+			camera.CFrame = origCF
+		end)
 	end
-
-	local camCF  = camera.CFrame
-	local origin = camCF.Position
-	local dir    = camCF.LookVector
-
-	-- Raycast to find what the camera is pointed at
-	local rayParams = RaycastParams.new()
-	rayParams.FilterType = Enum.RaycastFilterType.Exclude
-	rayParams.FilterDescendantsInstances = { character }
-	rayParams.IgnoreWater = true
-
-	local result = workspace:Raycast(origin, dir * range, rayParams)
-	local targetPos = result and result.Position or (origin + dir * range)
-
-	return targetPos, dir
 end
 
---------------------------------------------------------------------------------
--- Slot Activation
---------------------------------------------------------------------------------
-local function activateSlot(slotIdx: number)
-	local skillName = equippedSlots[slotIdx]
-	if not skillName or skillName == "" then return end
+local function getMouseAim(): (Vector3, Vector3)
+	local camera = workspace.CurrentCamera
+	local char = localPlayer.Character
+	local hrp = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	local origin = hrp and hrp.Position or (camera and camera.CFrame.Position or Vector3.zero)
+
+	local mousePos = UserInputService:GetMouseLocation()
+	local ray = camera and camera:ViewportPointToRay(mousePos.X, mousePos.Y)
+	local dir = ray and ray.Direction or (camera and camera.CFrame.LookVector or Vector3.new(0, 0, -1))
+
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	if char then params.FilterDescendantsInstances = { char } end
+
+	local hit = workspace:Raycast(origin, dir * 300, params)
+	local targetPos = hit and hit.Position or (origin + dir * 60)
+	return origin, targetPos
+end
+
+local function findTargetUnderMouse(maxDist: number): Model?
+	local camera = workspace.CurrentCamera
+	if not camera then return nil end
+
+	local mousePos = UserInputService:GetMouseLocation()
+	local ray = camera:ViewportPointToRay(mousePos.X, mousePos.Y)
+	if not ray then return nil end
+
+	local char = localPlayer.Character
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	if char then params.FilterDescendantsInstances = { char } end
+
+	local hit = workspace:Raycast(ray.Origin, ray.Direction * maxDist, params)
+	if hit and hit.Instance then
+		local model = hit.Instance:FindFirstAncestorOfClass("Model")
+		local hum = model and model:FindFirstChildOfClass("Humanoid")
+		if hum and hum.Health > 0 and model ~= char then
+			return model
+		end
+	end
+	return nil
+end
+
+-- ============================================================================
+-- SLOT VISUAL UPDATE FUNCTION
+-- ============================================================================
+local function updateSlotVisual(i: number, skillName: string)
+	slotSkills[i] = skillName
+	local slotOrb = slotFrames[i]
+	if not slotOrb then return end
+
+	local skillDef = SkillConfig.Skills[skillName]
+	local icn = slotIcons[i]
+	local icnImg = slotIconImages[i]
+	local nl = slotNames[i]
+
+	local assetId = IconAssets.getSkillIcon(skillName)
+	if IconAssets.isUploaded(assetId) then
+		if not icnImg then
+			icnImg = Instance.new("ImageLabel")
+			icnImg.Name = "IconImage"
+			icnImg.BackgroundTransparency = 1
+			icnImg.Size = UDim2.new(0.75, 0, 0.75, 0)
+			icnImg.Position = UDim2.new(0.125, 0, 0.05, 0)
+			icnImg.ScaleType = Enum.ScaleType.Fit
+			icnImg.ZIndex = 4
+			icnImg.Parent = slotOrb
+			slotIconImages[i] = icnImg
+		end
+		icnImg.Image = assetId
+		icnImg.Visible = true
+		if icn then icn.Visible = false end
+	else
+		if icnImg then icnImg.Visible = false end
+		if icn and skillDef then
+			icn.Text = skillDef.Icon or "SS"
+			icn.Visible = true
+		end
+	end
+	if nl and skillDef then
+		nl.Text = skillDef.DisplayName or skillName
+	end
+end
+
+-- ============================================================================
+-- SLOT ACTIVATION (Combat Casting)
+-- ============================================================================
+local function activateSlot(slotIdx: number, overrideTargetPos: Vector3?)
+	local skillName = slotSkills[slotIdx]
+	if not skillName then return end
 
 	local skillDef = SkillConfig.Skills[skillName]
 	if not skillDef then return end
 
-	-- Client-side cooldown gate
-	local now = tick()
-	if clientCooldowns[skillName] and clientCooldowns[skillName] > now then
-		-- Flash slot red to indicate on cooldown
-		local card = slotUIButtons[slotIdx]
-		if card then
-			local origColor = card.BackgroundColor3
-			TweenService:Create(card, TweenInfo.new(0.08), { BackgroundColor3 = Color3.fromRGB(120, 30, 30) }):Play()
-			task.delay(0.15, function()
-				TweenService:Create(card, TweenInfo.new(0.12), { BackgroundColor3 = origColor }):Play()
-			end)
-		end
+	local now = os.clock()
+	local nextAllowed = clientCooldowns[skillName] or 0
+	if now < nextAllowed then
+		showPromptNotification(string.format("%s is on cooldown! (%.1fs)", skillName, nextAllowed - now), GuofengTheme.Colors.RedCrimson)
 		return
 	end
 
-	-- Set optimistic client-side cooldown
+	local curQi = localPlayer:GetAttribute("Qi") or 0
+	if curQi < skillDef.QiCost then
+		showPromptNotification(string.format("Insufficient Qi! Requires %d Qi.", skillDef.QiCost), GuofengTheme.Colors.RedCrimson)
+		return
+	end
+
 	clientCooldowns[skillName] = now + skillDef.Cooldown
 
-	-- Visual Click Bounce
-	local slotFrame = slotUIButtons[slotIdx]
-	TweenService:Create(slotFrame, TweenInfo.new(0.08, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-		Size = UDim2.new(0, 82, 0, 82),
-	}):Play()
-	task.delay(0.08, function()
-		TweenService:Create(slotFrame, TweenInfo.new(0.12), { Size = UDim2.new(0, 76, 0, 76) }):Play()
-	end)
+	local origin, targetPos = getMouseAim()
+	if overrideTargetPos then targetPos = overrideTargetPos end
 
-	-- Procedural cast animation
-	playProceduralCastAnim(skillName)
+	local targetModel = nil
+	if skillDef.TargetType == "Targeted" then
+		targetModel = findTargetUnderMouse(skillDef.Range or 80)
+	end
 
-	-- Gather aim / target data
-	local targetPos, aimDir = getAimTarget(skillDef.Range or 60)
-
-	local targetData = {
-		AimDirection  = aimDir,
+	playCastAnimation(skillName)
+	skillRequestRemote:FireServer(skillName, {
 		TargetPosition = targetPos,
-		TargetModel    = (skillName == "Flame Spear") and lockedTargetModel or nil,
-	}
+		TargetModel = targetModel,
+		Origin = origin,
+	})
 
-	-- Send authoritative request to server
-	skillRequestRemote:FireServer(skillName, targetData)
+	-- Cooldown UI overlay sweep
+	local cdOverlay = slotCdOverlays[slotIdx]
+	local cdText = slotCdTexts[slotIdx]
+	if cdOverlay and cdText then
+		cdOverlay.Visible = true
+		cdText.Visible = true
+		task.spawn(function()
+			local duration = skillDef.Cooldown
+			local startTime = os.clock()
+			while true do
+				local elapsed = os.clock() - startTime
+				local rem = duration - elapsed
+				if rem <= 0 then break end
+				cdText.Text = string.format("%.1f", rem)
+				cdOverlay.Size = UDim2.new(1, 0, rem / duration, 0)
+				task.wait(0.04)
+			end
+			cdOverlay.Visible = false
+			cdText.Visible = false
+		end)
+	end
+
+	-- Slot press visual bounce
+	local slotOrb = slotFrames[slotIdx]
+	if slotOrb then
+		local origSize = slotOrb.Size
+		local stroke = slotOrb:FindFirstChildOfClass("UIStroke")
+		if stroke then stroke.Color = GuofengTheme.Colors.GoldLight end
+
+		TweenService:Create(slotOrb, TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			Size = origSize + UDim2.new(0, 6, 0, 6),
+		}):Play()
+
+		task.delay(0.12, function()
+			if slotOrb and slotOrb.Parent then
+				TweenService:Create(slotOrb, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+					Size = origSize,
+				}):Play()
+				if stroke and stroke.Parent then
+					stroke.Color = GuofengTheme.Colors.CyanGlow
+				end
+			end
+		end)
+	end
 end
 
---------------------------------------------------------------------------------
--- Keybind Input Listener  (Z, X, V, F  +  K for Skill Book)
---------------------------------------------------------------------------------
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-	if gameProcessed or UserInputService:GetFocusedTextBox() ~= nil then
-		return
+-- ============================================================================
+-- 1. SETUP THE 4 EDIT-MODE HOTBAR SLOTS
+-- ============================================================================
+for i = 1, 4 do
+	local slotOrb = hotbar:WaitForChild("SkillSlot_" .. i) :: Frame
+	slotFrames[i] = slotOrb
+
+	local skillName = slotSkills[i]
+	local skillDef = SkillConfig.Skills[skillName]
+
+	local icn = slotOrb:FindFirstChild("Icon") :: TextLabel?
+	local icnImg = slotOrb:FindFirstChild("IconImage") :: ImageLabel?
+	local nl = slotOrb:FindFirstChild("Name") :: TextLabel?
+	local btn = slotOrb:FindFirstChild("Btn") :: TextButton?
+	local cdOverlay = slotOrb:FindFirstChild("CDOverlay") :: Frame?
+	local cdText = slotOrb:FindFirstChild("CDText") :: TextLabel?
+
+	slotIcons[i] = icn
+	slotIconImages[i] = icnImg
+	slotNames[i] = nl
+	slotButtons[i] = btn
+	slotCdOverlays[i] = cdOverlay
+	slotCdTexts[i] = cdText
+
+	-- Initial visual setup
+	updateSlotVisual(i, skillName)
+
+	if btn then
+		btn.ZIndex = 20
+		btn.Active = true
+		btn.Selectable = true
+		btn.MouseButton1Click:Connect(function()
+			if selectedBookSkill then
+				-- If a technique is selected in the manual, equip it into this slot!
+				skillEquipReqRemote:FireServer("EquipSlot", i, selectedBookSkill)
+				showPromptNotification(string.format("Equipped %s into Slot %d!", selectedBookSkill, i), GuofengTheme.Colors.CyanGlow)
+				selectedBookSkill = nil
+			else
+				activateSlot(i)
+			end
+		end)
 	end
+
+	slotOrb.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			if not selectedBookSkill then
+				activateSlot(i)
+			end
+		end
+	end)
+end
+
+-- ============================================================================
+-- 2. KEYBIND ACTIVATION (1, 2, 3, 4, Keypad 1-4, Z, X, V, F, and K)
+-- ============================================================================
+local keyToSlot = {
+	[Enum.KeyCode.One]         = 1,
+	[Enum.KeyCode.Two]         = 2,
+	[Enum.KeyCode.Three]       = 3,
+	[Enum.KeyCode.Four]        = 4,
+	[Enum.KeyCode.KeypadOne]   = 1,
+	[Enum.KeyCode.KeypadTwo]   = 2,
+	[Enum.KeyCode.KeypadThree] = 3,
+	[Enum.KeyCode.KeypadFour]  = 4,
+	[Enum.KeyCode.Z]           = 1,
+	[Enum.KeyCode.X]           = 2,
+	[Enum.KeyCode.V]           = 3,
+	[Enum.KeyCode.F]           = 4,
+}
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed or UserInputService:GetFocusedTextBox() ~= nil then return end
 
 	if input.KeyCode == Enum.KeyCode.K then
-		toggleSkillBook()
+		bookModal.Visible = not bookModal.Visible
+		selectedBookSkill = nil
 		return
 	end
 
-	for slotIdx = 1, 4 do
-		if input.KeyCode == slotKeyCodes[slotIdx] then
+	local slotIdx = keyToSlot[input.KeyCode]
+	if slotIdx then
+		if selectedBookSkill then
+			skillEquipReqRemote:FireServer("EquipSlot", slotIdx, selectedBookSkill)
+			showPromptNotification(string.format("Equipped %s into Slot %d!", selectedBookSkill, slotIdx), GuofengTheme.Colors.CyanGlow)
+			selectedBookSkill = nil
+		else
 			activateSlot(slotIdx)
-			break
 		end
 	end
 end)
 
---------------------------------------------------------------------------------
--- Cooldown & Lock-On Render Loop
---------------------------------------------------------------------------------
-local _reticle = ensureLockOnReticle()
+-- ============================================================================
+-- 3. MARTIAL ARTS BOOK MODAL (Technique Manual)
+-- ============================================================================
+closeBookBtn.MouseButton1Click:Connect(function()
+	bookModal.Visible = false
+	selectedBookSkill = nil
+end)
 
-RunService.RenderStepped:Connect(function()
-	local now = tick()
+local function populateBookUI()
+	for _, ch in ipairs(skillList:GetChildren()) do
+		if ch:IsA("Frame") then ch:Destroy() end
+	end
 
-	-- 1. Update Hotbar Cooldown Sweeps & Numbers
-	for slotIdx = 1, 4 do
-		local skillName = equippedSlots[slotIdx]
-		local skillDef  = SkillConfig.Skills[skillName]
-		local cdOverlay = slotCooldownFrames[slotIdx]
-		local cdText    = slotCooldownTexts[slotIdx]
+	for _, skillName in ipairs(SkillConfig.SkillList) do
+		local skillDef = SkillConfig.Skills[skillName]
+		if not skillDef then continue end
 
-		if skillDef and clientCooldowns[skillName] then
-			local remaining = clientCooldowns[skillName] - now
-			if remaining > 0 then
-				cdOverlay.Visible = true
-				cdText.Visible    = true
+		local card = GuofengTheme.createParchmentCard(skillList, UDim2.new(1, -8, 0, 74), UDim2.new(0, 4, 0, 0))
+		card.Name = skillName
 
-				local frac     = math.clamp(remaining / skillDef.Cooldown, 0, 1)
-				cdOverlay.Size = UDim2.new(1, 0, frac, 0)
-				cdText.Text    = string.format("%.1f", remaining)
-			else
-				cdOverlay.Visible = false
-				cdText.Visible    = false
-			end
+		-- Emblem for Icon
+		local emblem = Instance.new("Frame")
+		emblem.Name = "Emblem"
+		emblem.BackgroundColor3 = GuofengTheme.Colors.DarkJadeHeader
+		emblem.Size = UDim2.new(0, 52, 0, 52)
+		emblem.Position = UDim2.new(0, 10, 0, 11)
+		emblem.BorderSizePixel = 0
+		emblem.ClipsDescendants = true
+		emblem.Parent = card
+
+		local emc = Instance.new("UICorner")
+		emc.CornerRadius = UDim.new(1, 0)
+		emc.Parent = emblem
+
+		local ems = Instance.new("UIStroke")
+		ems.Color = GuofengTheme.Colors.GoldBorder
+		ems.Thickness = 1.5
+		ems.Parent = emblem
+
+		local skillAssetId = IconAssets.getSkillIcon(skillName)
+		if IconAssets.isUploaded(skillAssetId) then
+			local img = Instance.new("ImageLabel")
+			img.BackgroundTransparency = 1
+			img.Size = UDim2.new(1, 0, 1, 0)
+			img.Image = skillAssetId
+			img.ScaleType = Enum.ScaleType.Fit
+			img.Parent = emblem
 		else
-			if cdOverlay then cdOverlay.Visible = false end
-			if cdText    then cdText.Visible    = false end
+			local icn = Instance.new("TextLabel")
+			icn.BackgroundTransparency = 1
+			icn.Size = UDim2.new(1, 0, 1, 0)
+			icn.Font = GuofengTheme.Fonts.Title
+			icn.Text = skillDef.Icon or "SS"
+			icn.TextSize = 24
+			icn.TextColor3 = Color3.fromRGB(255, 255, 255)
+			icn.Parent = emblem
 		end
-	end
 
-	-- 2. Update Lock-on Target for Flame Spear
-	local hasFlameSpear = false
-	for slot = 1, 4 do
-		if equippedSlots[slot] == "Flame Spear" then
-			hasFlameSpear = true
-			break
-		end
-	end
+		-- Name
+		local nameLab = Instance.new("TextLabel")
+		nameLab.BackgroundTransparency = 1
+		nameLab.Size = UDim2.new(0, 220, 0, 22)
+		nameLab.Position = UDim2.new(0, 70, 0, 6)
+		nameLab.Font = GuofengTheme.Fonts.Header
+		nameLab.Text = skillDef.DisplayName or skillDef.Name
+		nameLab.TextColor3 = GuofengTheme.Colors.GoldLight
+		nameLab.TextSize = 13
+		nameLab.TextXAlignment = Enum.TextXAlignment.Left
+		nameLab.Parent = card
 
-	if hasFlameSpear then
-		lockedTargetModel = updateLockOnTarget()
-		if lockedTargetModel and lockedTargetModel.Parent then
-			local tRoot = lockedTargetModel:FindFirstChild("HumanoidRootPart")
-				or lockedTargetModel:FindFirstChild("Torso")
-			if tRoot then
-				reticle.Adornee = tRoot :: BasePart
-				reticle.Visible = true
-			else
-				reticle.Visible = false
-			end
-		else
-			reticle.Visible = false
-		end
-	else
-		reticle.Visible = false
+		-- Stats line
+		local statLab = Instance.new("TextLabel")
+		statLab.BackgroundTransparency = 1
+		statLab.Size = UDim2.new(0, 240, 0, 18)
+		statLab.Position = UDim2.new(0, 70, 0, 28)
+		statLab.Font = GuofengTheme.Fonts.Header
+		statLab.Text = string.format("QI: %d  |  CD: %.1fs  |  POWER: %d", skillDef.QiCost, skillDef.Cooldown, skillDef.Damage or 0)
+		statLab.TextColor3 = GuofengTheme.Colors.CyanGlow
+		statLab.TextSize = 10
+		statLab.TextXAlignment = Enum.TextXAlignment.Left
+		statLab.Parent = card
+
+		-- Description
+		local descLab = Instance.new("TextLabel")
+		descLab.BackgroundTransparency = 1
+		descLab.Size = UDim2.new(0, 240, 0, 20)
+		descLab.Position = UDim2.new(0, 70, 0, 48)
+		descLab.Font = GuofengTheme.Fonts.Body
+		descLab.Text = skillDef.Description or ""
+		descLab.TextColor3 = GuofengTheme.Colors.TextMuted
+		descLab.TextSize = 10
+		descLab.TextXAlignment = Enum.TextXAlignment.Left
+		descLab.Parent = card
+
+		-- Equip Button / Badge
+		local equipBtn = Instance.new("TextButton")
+		equipBtn.Name = "EquipBtn"
+		equipBtn.BackgroundColor3 = GuofengTheme.Colors.DarkJadeCard
+		equipBtn.Size = UDim2.new(0, 85, 0, 30)
+		equipBtn.Position = UDim2.new(1, -95, 0, 22)
+		equipBtn.Font = GuofengTheme.Fonts.Header
+		equipBtn.Text = "EQUIP"
+		equipBtn.TextColor3 = GuofengTheme.Colors.GoldLight
+		equipBtn.TextSize = 11
+		equipBtn.Parent = card
+
+		local ebc = Instance.new("UICorner")
+		ebc.CornerRadius = UDim.new(0, 5)
+		ebc.Parent = equipBtn
+
+		local ebs = Instance.new("UIStroke")
+		ebs.Color = GuofengTheme.Colors.GoldBorderDim
+		ebs.Thickness = 1.2
+		ebs.Parent = equipBtn
+
+		equipBtn.MouseButton1Click:Connect(function()
+			selectedBookSkill = skillName
+			showPromptNotification(string.format("Selected %s. Press 1-4, Z/X/V/F, or click a hotbar slot to equip!", skillName), GuofengTheme.Colors.GoldLight)
+		end)
 	end
+end
+
+populateBookUI()
+
+-- ============================================================================
+-- 4. REPLICATE AND PLAY SKILL VISUALS & SOUNDS
+-- ============================================================================
+skillReplicateRemote.OnClientEvent:Connect(function(actionName: string, ...)
+	SkillFXHelper.playSkillFX(actionName, ...)
 end)
 
---------------------------------------------------------------------------------
--- Server Replication Listener (plays anime VFX for all clients)
---------------------------------------------------------------------------------
-skillReplicateRemote.OnClientEvent:Connect(function(action: string, ...)
-	local args = { ... }
-
-	if action == "SwordSlash" then
-		local casterChar, origin, dir, range, speed = args[1], args[2], args[3], args[4], args[5]
-		if casterChar then
-			SkillFXHelper.playSwordSlash(casterChar, origin, dir, range, speed)
-		end
-	elseif action == "PalmArt" then
-		local casterChar, origin, lookDir, radius = args[1], args[2], args[3], args[4]
-		if casterChar then
-			SkillFXHelper.playPalmArt(casterChar, origin, lookDir, radius)
-		end
-	elseif action == "FlameBall" then
-		local casterChar, origin, targetPos, speed, radius = args[1], args[2], args[3], args[4], args[5]
-		if casterChar then
-			SkillFXHelper.playFlameBall(casterChar, origin, targetPos, speed, radius)
-		end
-	elseif action == "ThunderStrike" then
-		local targetPos, radius, warningDuration = args[1], args[2], args[3]
-		SkillFXHelper.playThunderStrike(targetPos, radius, warningDuration)
-	elseif action == "MultipleSwords" then
-		local casterChar, origin, targetPos, count, speed = args[1], args[2], args[3], args[4], args[5]
-		if casterChar then
-			SkillFXHelper.playMultipleSwords(casterChar, origin, targetPos, count, speed)
-		end
-	elseif action == "FlameSpear" then
-		local casterChar, origin, targetModel, targetPos, speed = args[1], args[2], args[3], args[4], args[5]
-		if casterChar then
-			SkillFXHelper.playFlameSpear(casterChar, origin, targetModel, targetPos, speed)
-		end
-	end
-end)
-
--- Sync equipped slots from server
-skillDataUpdateRemote.OnClientEvent:Connect(function(action: string, data: any)
-	if action == "SyncEquipped" and type(data) == "table" then
+-- ============================================================================
+-- 5. SERVER EQUIPPED SLOTS SYNCHRONIZATION
+-- ============================================================================
+local function applyEquippedSlots(data: any)
+	if typeof(data) == "table" then
 		for slot = 1, 4 do
-			equippedSlots[slot] = data[slot] or ""
+			local sName = data[slot] or data[tostring(slot)]
+			if typeof(sName) == "string" and SkillConfig.Skills[sName] then
+				updateSlotVisual(slot, sName)
+			end
 		end
-		refreshHotbarUI()
-		if bookModal and bookModal.Visible then
-			renderModalSlotBar()
-			renderSkillList()
-		end
+	end
+end
+
+skillDataUpdateRemote.OnClientEvent:Connect(function(action: string, data: any)
+	if (action == "SyncEquipped" or action == "SyncSlots") and typeof(data) == "table" then
+		applyEquippedSlots(data)
 	end
 end)
 
-print("⚡ [SkillClient] Anime Combat Skill System HUD & Keybinds initialized.")
+-- Initial slot sync from player attributes and reactive updates
+for slot = 1, 4 do
+	local attr = localPlayer:GetAttribute("SkillSlot" .. slot)
+	if typeof(attr) == "string" and SkillConfig.Skills[attr] then
+		updateSlotVisual(slot, attr)
+	end
+	localPlayer:GetAttributeChangedSignal("SkillSlot" .. slot):Connect(function()
+		local updated = localPlayer:GetAttribute("SkillSlot" .. slot)
+		if typeof(updated) == "string" and SkillConfig.Skills[updated] then
+			updateSlotVisual(slot, updated)
+		end
+	end)
+end
+
+print("[SkillClient] Martial Arts Hotbar initialized cleanly with zero runtime ScreenGui creation.")

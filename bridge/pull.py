@@ -50,8 +50,6 @@ def check_connection():
             data = json.loads(resp.read().decode("utf-8"))
             if not data.get("server_running"):
                 return False, "Bridge server is not running."
-            if not data.get("studio_connected"):
-                return False, "Roblox Studio is not connected. Make sure Roblox Studio is open and AIBridgePlugin is running."
             return True, "Connected"
     except Exception as e:
         return False, f"Could not reach bridge server at {BASE_URL}: {e}"
@@ -283,7 +281,7 @@ def pull_scripts(root_dir: Path):
             
         target_file.parent.mkdir(parents=True, exist_ok=True)
         with open(target_file, "w", encoding="utf-8") as f:
-            f.write(source)
+            f.write(source or "")
             
         pulled_count += 1
         print(f"  [+] {path_str} -> {target_file.relative_to(root_dir)}")
@@ -317,11 +315,12 @@ def update_project_json(root_dir: Path):
     sps = sp.setdefault("StarterPlayerScripts", {})
     sps.setdefault("Client", {"$path": "src/client"})
     
-    # If src/gui exists, map StarterGui
-    gui_dir = root_dir / "src" / "gui"
-    if gui_dir.exists() and any(gui_dir.iterdir()):
-        sg = tree.setdefault("StarterGui", {})
-        sg.setdefault("UI", {"$path": "src/gui"})
+    # Map StarterGui scripts cleanly without creating redundant UI folder
+    sg = tree.setdefault("StarterGui", {})
+    sg["CultivationUI"] = {"CultivationClient": {"$path": "src/gui/CultivationUI/CultivationClient.client.luau"}}
+    sg["SkillUI"] = {"SkillClient": {"$path": "src/gui/SkillUI/SkillClient.client.luau"}}
+    if "UI" in sg:
+        del sg["UI"]
         
     # If src/serverstorage exists, map ServerStorage
     ss_dir = root_dir / "src" / "serverstorage"
