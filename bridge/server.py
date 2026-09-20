@@ -3,6 +3,7 @@ import json
 import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
+from pathlib import Path
 import threading
 import queue
 
@@ -70,6 +71,19 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 self._send_json(200, results[cmd_id])
             else:
                 self._send_json(404, {"error": "Result not ready or not found"})
+
+        elif parsed.path in ("/plugin.lua", "/plugin"):
+            plugin_file = Path(__file__).resolve().parent.parent / "AIBridgePlugin.lua"
+            if plugin_file.exists():
+                code = plugin_file.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain; charset=utf-8")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Content-Length", str(len(code)))
+                self.end_headers()
+                self.wfile.write(code)
+            else:
+                self._send_json(404, {"error": "Plugin file not found"})
 
         else:
             self._send_json(404, {"error": "Endpoint not found"})

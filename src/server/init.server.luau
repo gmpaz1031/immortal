@@ -4,6 +4,8 @@ local Workspace = game:GetService("Workspace")
 local DataStoreService = game:GetService("DataStoreService")
 
 local cultivationRemote = ReplicatedStorage:WaitForChild("CultivationRemote")
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local DestinyConfig = require(Shared:WaitForChild("DestinyConfig"))
 local punchCooldowns = {}
 
 -- Safe DataStore setup (falls back gracefully if API access is disabled in Studio)
@@ -64,7 +66,13 @@ local function updatePlayerStats(player)
 	local expiry = player:GetAttribute("PillBuffExpiry") or 0
 	local isPillActive = expiry > os.time()
 	local pillMult = isPillActive and (player:GetAttribute("PillMultiplier") or 2) or 1
-	local effectiveQiMult = baseQiMult * pillMult
+
+	local talent = player:GetAttribute("Talent") or "Mortal"
+	local root = player:GetAttribute("SpiritualRoot") or "None"
+	local talentMult = DestinyConfig.GetTalentMultiplier(talent)
+	local rootMult = DestinyConfig.GetRootMultiplier(root)
+
+	local effectiveQiMult = baseQiMult * pillMult * talentMult * rootMult
 
 	-- Calculate Equipment Bonuses (+10 Health & +10 Defense per equipped piece)
 	local hasHelmet = player:GetAttribute("EquippedHelmet") == true
@@ -83,6 +91,8 @@ local function updatePlayerStats(player)
 
 	player:SetAttribute("Damage", baseDmg)
 	player:SetAttribute("BaseQiMultiplier", baseQiMult)
+	player:SetAttribute("TalentMultiplier", talentMult)
+	player:SetAttribute("SpiritualRootMultiplier", rootMult)
 	player:SetAttribute("QiMultiplier", effectiveQiMult)
 	player:SetAttribute("Luck", luckVal)
 	player:SetAttribute("Defense", defenseVal)
@@ -214,6 +224,8 @@ local function createCombatTool()
 	tool.CanBeDropped = false
 	tool.RequiresHandle = false
 	tool.ToolTip = "Click to punch enemies · 10 damage"
+	local HttpService = game:GetService("HttpService")
+	tool:SetAttribute("ItemUniqueId", HttpService:GenerateGUID(false))
 
 	local clientScript = Instance.new("LocalScript")
 	clientScript.Name = "CombatClient"
@@ -501,6 +513,9 @@ local function serializePlayerData(player)
 		PillBuffExpiry = player:GetAttribute("PillBuffExpiry") or 0,
 		EquippedHelmet = player:GetAttribute("EquippedHelmet") or false,
 		EquippedArmor = player:GetAttribute("EquippedArmor") or false,
+		Talent = player:GetAttribute("Talent") or "Mortal",
+		SpiritualRoot = player:GetAttribute("SpiritualRoot") or "None",
+		SpinsUsed = player:GetAttribute("SpinsUsed") or 0,
 		Inventory = invTable,
 		SavedAt = os.time()
 	}
@@ -515,7 +530,7 @@ local function savePlayerData(player)
 		playerDataStore:SetAsync(key, data)
 	end)
 	if success then
-		print(string.format("💾 [AutoSave] Successfully saved data for %s (Gold: %d, Qi: %d, Level: %d)", player.Name, data.Gold, data.Qi, data.RealmLevel))
+		print(string.format("💾 [AutoSave] Successfully saved data for %s (Gold: %d, Qi: %d, Level: %d, Talent: %s, Root: %s)", player.Name, data.Gold, data.Qi, data.RealmLevel, tostring(data.Talent), tostring(data.SpiritualRoot)))
 	else
 		warn(string.format("⚠️ [AutoSave] Failed to save data for %s: %s", player.Name, tostring(err)))
 	end
@@ -540,6 +555,9 @@ local function loadPlayerData(player)
 		if savedData.PillBuffExpiry then player:SetAttribute("PillBuffExpiry", savedData.PillBuffExpiry) end
 		if savedData.EquippedHelmet ~= nil then player:SetAttribute("EquippedHelmet", savedData.EquippedHelmet) end
 		if savedData.EquippedArmor ~= nil then player:SetAttribute("EquippedArmor", savedData.EquippedArmor) end
+		if savedData.Talent then player:SetAttribute("Talent", savedData.Talent) end
+		if savedData.SpiritualRoot then player:SetAttribute("SpiritualRoot", savedData.SpiritualRoot) end
+		if savedData.SpinsUsed ~= nil then player:SetAttribute("SpinsUsed", savedData.SpinsUsed) end
 
 		if savedData.Inventory and type(savedData.Inventory) == "table" then
 			for itemName, count in pairs(savedData.Inventory) do
@@ -547,7 +565,7 @@ local function loadPlayerData(player)
 			end
 		end
 
-		print(string.format("📂 [AutoSave] Successfully loaded profile for %s (Gold: %d, Qi: %d, Level: %d)", player.Name, savedData.Gold or 0, savedData.Qi or 0, savedData.RealmLevel or 0))
+		print(string.format("📂 [AutoSave] Successfully loaded profile for %s (Gold: %d, Qi: %d, Level: %d, Talent: %s, Root: %s)", player.Name, savedData.Gold or 0, savedData.Qi or 0, savedData.RealmLevel or 0, tostring(savedData.Talent or "Mortal"), tostring(savedData.SpiritualRoot or "None")))
 		return true
 	end
 	return false
@@ -579,6 +597,9 @@ local function setupPlayer(player)
 	player:SetAttribute("Defense", 0)
 	player:SetAttribute("EquippedHelmet", false)
 	player:SetAttribute("EquippedArmor", false)
+	player:SetAttribute("Talent", "Mortal")
+	player:SetAttribute("SpiritualRoot", "None")
+	player:SetAttribute("SpinsUsed", 0)
 
 	-- Default starter inventory
 	addInventoryItem(player, "Qi Condensation Pill", 1)
@@ -867,6 +888,40 @@ task.spawn(function()
 	else
 		warn("⚠️ [SkillService] SkillService ModuleScript not found in Server!")
 	end
+
+	-- Initialize Destroyed Village Environment & Boss Arena
+	local dvg = script:WaitForChild("DestroyedVillageGenerator", 5)
+	if dvg then
+		local ok, mod = pcall(require, dvg)
+		if ok and mod and mod.generate then
+			mod.generate()
+		end
+	end
+
+	-- Initialize Destroyed Village Swordsmen & Swordmaster Boss
+	local dvm = script:WaitForChild("DestroyedVillageManager", 5)
+	if dvm then
+		local ok, mod = pcall(require, dvm)
+		if ok and mod and mod.init then
+			mod.init()
+		end
+	end
+
+	-- Initialize Demon Cult Village, Enemies & Boss Templates
+	local dcm = script:WaitForChild("DemonCultManager", 5)
+	if dcm then
+		local ok, err = pcall(function()
+			local mod = require(dcm)
+			if mod and mod.init then
+				mod.init()
+			end
+		end)
+		if not ok then
+			warn("❌ [DemonCultManager] Failed to initialize:", err)
+		end
+	else
+		warn("⚠️ [DemonCultManager] DemonCultManager not found — skipping Demon Cult village.")
+	end
 end)
 
 --------------------------------------------------------------------------------
@@ -932,6 +987,47 @@ cultivationRemote.OnServerEvent:Connect(function(player, action, ...)
 				end
 			end)
 		end)
+		return
+	end
+
+	-- Spin Destiny Wheel (Talent & Spiritual Root)
+	if action == "SpinWheel" then
+		local wheelType = args[1] -- "Talent" or "SpiritualRoot"
+		if wheelType ~= "Talent" and wheelType ~= "SpiritualRoot" then
+			return
+		end
+
+		local leaderstats = player:FindFirstChild("leaderstats")
+		local gold = leaderstats and leaderstats:FindFirstChild("Gold")
+		local spinsUsed = player:GetAttribute("SpinsUsed") or 0
+		local cost = (spinsUsed == 0) and 0 or DestinyConfig.SPIN_COST
+
+		if cost > 0 and (not gold or gold.Value < cost) then
+			cultivationRemote:FireClient(player, "Notification", "Not enough Gold to spin the Destiny Wheel! (Requires " .. tostring(cost) .. " Gold)")
+			return
+		end
+
+		if cost > 0 and gold then
+			gold.Value = gold.Value - cost
+		end
+
+		player:SetAttribute("SpinsUsed", spinsUsed + 1)
+
+		if wheelType == "Talent" then
+			local resultTalent, resultIndex = DestinyConfig.RollTalent()
+			player:SetAttribute("Talent", resultTalent.Name)
+			updatePlayerStats(player)
+			savePlayerData(player)
+			cultivationRemote:FireClient(player, "SpinResult", "Talent", resultIndex, resultTalent.Name, resultTalent.Multiplier)
+			cultivationRemote:FireClient(player, "Notification", string.format("Destiny Awakened! %s Talent obtained (x%.2f Qi Multiplier)!", resultTalent.Name, resultTalent.Multiplier))
+		elseif wheelType == "SpiritualRoot" then
+			local resultRoot, resultIndex = DestinyConfig.RollSpiritualRoot()
+			player:SetAttribute("SpiritualRoot", resultRoot.Name)
+			updatePlayerStats(player)
+			savePlayerData(player)
+			cultivationRemote:FireClient(player, "SpinResult", "SpiritualRoot", resultIndex, resultRoot.Name, resultRoot.Multiplier)
+			cultivationRemote:FireClient(player, "Notification", string.format("Spiritual Root Awakened! %s obtained (x%.2f Multiplier)!", resultRoot.Name, resultRoot.Multiplier))
+		end
 		return
 	end
 
