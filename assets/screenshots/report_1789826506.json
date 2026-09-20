@@ -1,0 +1,33 @@
+{
+  "timestamp": 1789826506,
+  "visual_captures": [
+    {
+      "region": "full",
+      "label": "Full Viewport",
+      "success": false,
+      "error": "Did not receive screenshot data from Studio (Studio out: ERROR: CaptureScreenshot timed out)"
+    },
+    {
+      "region": "hotbar",
+      "label": "Skill Hotbar",
+      "success": false,
+      "error": "Did not receive screenshot data from Studio (Studio out: ERROR: CaptureScreenshot timed out)"
+    },
+    {
+      "region": "hud",
+      "label": "Cultivation HUD",
+      "success": false,
+      "error": "Did not receive screenshot data from Studio (Studio out: ERROR: CaptureScreenshot timed out)"
+    }
+  ],
+  "logic_checks": {
+    "SkillUI exists": "true",
+    "Slot 1 Icon": "rbxassetid://123519897558803",
+    "Slot 2 Icon": "rbxassetid://120346215585475",
+    "Slot 3 Icon": "rbxassetid://103990413563680",
+    "Slot 4 Icon": "rbxassetid://95852143249219",
+    "CultivationUI exists": "true",
+    "Active Enemies Count": "6",
+    "Console Script Errors": "0"
+  }
+}

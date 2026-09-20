@@ -1,0 +1,33 @@
+{
+  "timestamp": 1789823835,
+  "visual_captures": [
+    {
+      "region": "full",
+      "label": "Full Viewport",
+      "path": "C:\\GMGAME\\immortal\\assets\\screenshots\\capture_full_full_1789823837.png",
+      "success": true
+    },
+    {
+      "region": "hotbar",
+      "label": "Skill Hotbar",
+      "path": "C:\\GMGAME\\immortal\\assets\\screenshots\\capture_hotbar_hotbar_1789823839.png",
+      "success": true
+    },
+    {
+      "region": "hud",
+      "label": "Cultivation HUD",
+      "path": "C:\\GMGAME\\immortal\\assets\\screenshots\\capture_hud_hud_1789823842.png",
+      "success": true
+    }
+  ],
+  "logic_checks": {
+    "SkillUI exists": "true",
+    "Slot 1 Icon": "rbxassetid://123519897558803",
+    "Slot 2 Icon": "rbxassetid://120346215585475",
+    "Slot 3 Icon": "rbxassetid://103990413563680",
+    "Slot 4 Icon": "rbxassetid://95852143249219",
+    "CultivationUI exists": "true",
+    "Active Enemies Count": "6",
+    "Console Script Errors": "0"
+  }
+}

@@ -5,7 +5,7 @@ import urllib.request
 
 PORT = 34875
 
-def exec_code(code: str, timeout: float = 10.0):
+def exec_code(code: str, timeout: float = 30.0):
     url = f"http://127.0.0.1:{PORT}/exec"
     payload = json.dumps({"code": code}).encode("utf-8")
     req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})

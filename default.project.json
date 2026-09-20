@@ -65,8 +65,20 @@
       }
     },
     "StarterGui": {
-      "UI": {
-        "$path": "src/gui"
+      "CultivationUI": {
+        "CultivationClient": {
+          "$path": "src/gui/CultivationUI/CultivationClient.client.luau"
+        }
+      },
+      "SkillUI": {
+        "SkillClient": {
+          "$path": "src/gui/SkillUI/SkillClient.client.luau"
+        }
+      }
+    },
+    "ServerStorage": {
+      "Storage": {
+        "$path": "src/serverstorage"
       }
     }
   }

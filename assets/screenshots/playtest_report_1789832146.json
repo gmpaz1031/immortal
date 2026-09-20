@@ -1,0 +1,55 @@
+{
+  "timestamp": 1789832146,
+  "studio_window": "Cultivation World - Roblox Studio",
+  "captures": [
+    {
+      "step": "initial",
+      "path": "C:\\GMGAME\\immortal\\assets\\screenshots\\studio_window_initial_frame_1789832146.png"
+    },
+    {
+      "step": "playtest_active",
+      "path": "C:\\GMGAME\\immortal\\assets\\screenshots\\studio_window_playtest_active_1789832151.png"
+    },
+    {
+      "step": "character_movement",
+      "path": "C:\\GMGAME\\immortal\\assets\\screenshots\\studio_window_character_movement_1789832155.png"
+    },
+    {
+      "step": "skill_sword_slash",
+      "path": "C:\\GMGAME\\immortal\\assets\\screenshots\\studio_window_skill_sword_slash_1789832160.png"
+    },
+    {
+      "step": "skill_flame_ball",
+      "path": "C:\\GMGAME\\immortal\\assets\\screenshots\\studio_window_skill_flame_ball_1789832163.png"
+    },
+    {
+      "step": "skill_palm_art_explosion",
+      "path": "C:\\GMGAME\\immortal\\assets\\screenshots\\studio_window_skill_palm_art_explosion_1789832166.png"
+    },
+    {
+      "step": "skill_thunder_debris",
+      "path": "C:\\GMGAME\\immortal\\assets\\screenshots\\studio_window_skill_thunder_debris_1789832171.png"
+    },
+    {
+      "step": "skill_thunder_zap1",
+      "path": "C:\\GMGAME\\immortal\\assets\\screenshots\\studio_window_skill_thunder_zap1_1789832173.png"
+    },
+    {
+      "step": "skill_thunder_zap2",
+      "path": "C:\\GMGAME\\immortal\\assets\\screenshots\\studio_window_skill_thunder_zap2_1789832176.png"
+    },
+    {
+      "step": "skill_thunder_zap3",
+      "path": "C:\\GMGAME\\immortal\\assets\\screenshots\\studio_window_skill_thunder_zap3_1789832178.png"
+    },
+    {
+      "step": "cultivation_active",
+      "path": "C:\\GMGAME\\immortal\\assets\\screenshots\\studio_window_cultivation_active_1789832184.png"
+    },
+    {
+      "step": "final",
+      "path": "C:\\GMGAME\\immortal\\assets\\screenshots\\studio_window_test_complete_1789832189.png"
+    }
+  ],
+  "logic_audit": {}
+}

@@ -1,0 +1,61 @@
+{
+  "timestamp": 1789837868,
+  "studio_window": "Cultivation World - Roblox Studio",
+  "captures": [
+    {
+      "step": "initial",
+      "path": "C:\\GMGAME\\immortal\\assets\\screenshots\\studio_window_initial_frame_1789837868.png"
+    },
+    {
+      "step": "playtest_active",
+      "path": "C:\\GMGAME\\immortal\\assets\\screenshots\\studio_window_playtest_active_1789837873.png"
+    },
+    {
+      "step": "movement_jump_landing",
+      "path": "C:\\GMGAME\\immortal\\assets\\screenshots\\studio_window_movement_jump_landing_1789837891.png"
+    },
+    {
+      "step": "aim_reticle_locked",
+      "path": "C:\\GMGAME\\immortal\\assets\\screenshots\\studio_window_aim_reticle_locked_1789837893.png"
+    },
+    {
+      "step": "skill_sword_slash",
+      "path": "C:\\GMGAME\\immortal\\assets\\screenshots\\studio_window_skill_sword_slash_1789837896.png"
+    },
+    {
+      "step": "skill_flame_ball",
+      "path": "C:\\GMGAME\\immortal\\assets\\screenshots\\studio_window_skill_flame_ball_1789837900.png"
+    },
+    {
+      "step": "skill_palm_art_explosion",
+      "path": "C:\\GMGAME\\immortal\\assets\\screenshots\\studio_window_skill_palm_art_explosion_1789837901.png"
+    },
+    {
+      "step": "skill_thunder_debris",
+      "path": "C:\\GMGAME\\immortal\\assets\\screenshots\\studio_window_skill_thunder_debris_1789837906.png"
+    },
+    {
+      "step": "skill_thunder_zap1",
+      "path": "C:\\GMGAME\\immortal\\assets\\screenshots\\studio_window_skill_thunder_zap1_1789837908.png"
+    },
+    {
+      "step": "skill_thunder_zap2",
+      "path": "C:\\GMGAME\\immortal\\assets\\screenshots\\studio_window_skill_thunder_zap2_1789837910.png"
+    },
+    {
+      "step": "skill_thunder_zap3",
+      "path": "C:\\GMGAME\\immortal\\assets\\screenshots\\studio_window_skill_thunder_zap3_1789837912.png"
+    },
+    {
+      "step": "cultivation_lotus_orbit",
+      "path": "C:\\GMGAME\\immortal\\assets\\screenshots\\studio_window_cultivation_lotus_orbit_1789837919.png"
+    },
+    {
+      "step": "final",
+      "path": "C:\\GMGAME\\immortal\\assets\\screenshots\\studio_window_test_complete_1789837933.png"
+    }
+  ],
+  "logic_audit": {},
+  "video_recording": "C:\\GMGAME\\immortal\\assets\\recordings\\studio_playtest_1789837867.mp4",
+  "artifact_video": "C:\\Users\\PAZ GC\\.gemini\\antigravity\\brain\\d74e1133-04fa-404e-97c8-84b51aaf915b\\studio_playtest_1789837867.mp4"
+}

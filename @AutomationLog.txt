@@ -1,0 +1,2 @@
+2026-09-20 12:50:05.436 <string>[6] <module> -> Find Control Timeout(10s): {ClassName: 'SystemOutputLogView', ControlType: EditControl}
+2026-09-20 12:52:01.723 test_run_button.py[32] <module> -> Find Control Timeout(10s): {ClassName: 'SystemOutputLogView', ControlType: EditControl}
